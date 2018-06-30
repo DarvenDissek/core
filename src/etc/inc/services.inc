@@ -286,15 +286,24 @@ function services_radvd_configure($blacklist = array())
         if (isset($radvdifs[$realif])) {
             continue;
         }
-        $radvdifs[$realif] = 1;
 
+        $radvdifs[$realif] = 1;
+        $autotype = 'unknown';
+
+        if (isset($config['interfaces'][$trackif]['ipaddrv6'])) {
+            $autotype = $config['interfaces'][$trackif]['ipaddrv6'];
+        }
+
+        $mtu = legacy_interface_stats($realif)['mtu'];
         $dnslist = array();
         $subnetv6 = '::';
         $ifcfgsnv6 = '64';
 
         $ifcfgipv6 = get_interface_ipv6($if);
 
-        if (is_ipaddrv6($ifcfgipv6)) {
+        if ($autotype == 'slaac') {
+            $subnetv6 = '2000::';
+        } elseif (is_ipaddrv6($ifcfgipv6)) {
             $ifcfgsnv6 = get_interface_subnetv6($if);
             $subnetv6 = gen_subnetv6($ifcfgipv6, $ifcfgsnv6);
         }
@@ -309,19 +318,19 @@ function services_radvd_configure($blacklist = array())
             }
         }
 
-        if (isset($config['interfaces'][$trackif]['ipaddrv6'])) {
-            $autotype = $config['interfaces'][$trackif]['ipaddrv6'];
-            $radvdconf .= "# Generated config for {$autotype} delegation from {$trackif} on {$if}\n";
-        }
-
+        $radvdconf .= "# Generated config for {$autotype} delegation from {$trackif} on {$if}\n";
         $radvdconf .= "interface {$realif} {\n";
         $radvdconf .= "\tAdvSendAdvert on;\n";
         $radvdconf .= "\tMinRtrAdvInterval 3;\n";
         $radvdconf .= "\tMaxRtrAdvInterval 10;\n";
-        $mtu = legacy_interface_stats($realif)['mtu'];
         $radvdconf .= "\tAdvLinkMTU ". (is_numeric($mtu) ? $mtu : 1280) .";\n";
         $radvdconf .= "\tAdvOtherConfigFlag on;\n";
         $radvdconf .= "\tprefix {$subnetv6}/{$ifcfgsnv6} {\n";
+        if ($autotype == 'slaac') {
+            $realtrackif = get_real_interface($trackif, 'inet6');
+            $radvdconf .= "\t\tBase6Interface $realtrackif;\n";
+            $radvdconf .= "\t\tDeprecatePrefix on;\n";
+        }
         $radvdconf .= "\t\tAdvOnLink on;\n";
         $radvdconf .= "\t\tAdvAutonomous on;\n";
         $radvdconf .= "\t\tAdvRouterAddr on;\n";

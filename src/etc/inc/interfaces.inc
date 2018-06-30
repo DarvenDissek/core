@@ -2716,6 +2716,9 @@ function interface_track6_configure($interface = 'lan', $lancfg, $linkupevent = 
         case '6rd':
             interface_track6_6rd_configure($interface, $lancfg);
             break;
+        case 'slaac':
+            interface_track6_slaac_configure($interface, $lancfg);
+            /* FALLTHROUGH */
         case 'dhcp6':
             if ($linkupevent == true) {
                 /*
@@ -2729,22 +2732,18 @@ function interface_track6_configure($interface = 'lan', $lancfg, $linkupevent = 
             }
             break;
     }
+}
 
-    if (!file_exists("/var/run/booting") && $linkupevent == false) {
-        services_dhcpd_configure("inet6");
-    }
-
-    return 0;
+function interface_track6_slaac_configure($interface = 'lan', $lancfg)
+{
+    $realif = get_real_interface($interface);
+    log_error("Accept router advertisements on interface {$realif}");
+    mwexecf('/sbin/ifconfig %s inet6 accept_rtadv -ifdisabled', $realif);
 }
 
 function interface_track6_6rd_configure($interface = 'lan', $lancfg)
 {
     global $config;
-
-    /* If the interface is not configured via another, exit */
-    if (empty($lancfg['track6-interface'])) {
-        return;
-    }
 
     $wancfg = $config['interfaces'][$lancfg['track6-interface']];
     if (empty($wancfg)) {
@@ -3953,17 +3952,29 @@ function link_interface_to_track6($wanif, $update = false)
         return $list;
     }
 
+    $wancfg = config_read_array('interfaces', $wanif);
+
+    if (!isset($wancfg['enable']) || empty($wancfg['ipaddrv6'])) {
+        return $list;
+    }
+
     foreach (legacy_config_get_interfaces(array('virtual' => false)) as $lanif => $lancfg) {
         if (!isset($lancfg['enable']) || empty($lancfg['ipaddrv6'])) {
             continue;
         }
 
         if ($lancfg['ipaddrv6'] == 'track6' && $lancfg['track6-interface'] == $wanif) {
-            if ($update) {
-                interface_track6_configure($lanif, $lancfg);
-            }
-
             $list[$lanif] = $lancfg;
+        }
+    }
+
+    if ($update) {
+        foreach ($list as $lanif => $lancfg) {
+            interface_track6_configure($lanif, $lancfg);
+        }
+
+        if ($wancfg['ipaddrv6'] == 'slaac') {
+            services_radvd_configure();
         }
     }
 
